@@ -1,0 +1,10 @@
+# Shared training/inference versions, aligned with Airflow's Python 3.12 constraints.
+numpy==2.5.3
+pandas==3.0.5
+scipy==1.18.1
+scikit-learn==1.9.1
+mlflow==3.17.2
+SQLAlchemy==2.0.52
+psycopg[binary]==3.3.5
+pyarrow==25.0.1
+pydantic-settings==2.15.0

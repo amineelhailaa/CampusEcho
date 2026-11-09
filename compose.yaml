@@ -1,0 +1,227 @@
+name: ${COMPOSE_PROJECT_NAME:-classification}
+
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+psycopg://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${APP_DB_NAME}
+  MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+  MODEL_URI: ${MODEL_URI:-}
+  MODEL_CACHE_DIR: /workspace/model-cache
+
+x-airflow: &airflow
+  image: classification-airflow:local
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  profiles: [orchestration]
+  user: "${LOCAL_UID:-1000}:0"
+  environment: &airflow-environment
+    <<: *app-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__CORE__PARALLELISM: "2"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "2"
+    AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "1"
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB_NAME}
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-admin}:admin
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/auth/passwords.json
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    OMP_NUM_THREADS: "1"
+    OPENBLAS_NUM_THREADS: "1"
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - ./runtime/airflow/logs:/opt/airflow/logs
+    - ./runtime/airflow/auth:/opt/airflow/auth
+    - ./src:/workspace/src:ro
+    - ./configs:/workspace/configs:ro
+    - ./data:/workspace/data
+    - ./reports:/workspace/reports
+  depends_on:
+    postgres:
+      condition: service_healthy
+    airflow-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16.11-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      APP_DB_NAME: ${APP_DB_NAME}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      MLFLOW_DB_NAME: ${MLFLOW_DB_NAME}
+      MLFLOW_DB_USER: ${MLFLOW_DB_USER}
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - ./runtime/postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -h 127.0.0.1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  mlflow:
+    image: classification-mlflow:local
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@postgres:5432/${MLFLOW_DB_NAME}
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --workers=1
+      - --serve-artifacts
+      - --artifacts-destination=/mlflow/artifacts
+      - --allowed-hosts=mlflow:5000,localhost:*,127.0.0.1:*
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - ./runtime/mlflow/artifacts:/mlflow/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    image: classification-api:local
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ./src:/workspace/src:ro
+      - ./api:/workspace/api:ro
+      - ./configs:/workspace/configs:ro
+      - ./runtime/api/model-cache:/workspace/model-cache
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  streamlit:
+    image: classification-streamlit:local
+    build:
+      context: .
+      dockerfile: docker/streamlit/Dockerfile
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+    ports:
+      - "127.0.0.1:${STREAMLIT_PORT:-8501}:8501"
+    volumes:
+      - ./streamlit_app:/workspace/streamlit_app:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  jupyter:
+    image: classification-jupyter:local
+    build:
+      context: .
+      dockerfile: docker/jupyter/Dockerfile
+    profiles: [notebook]
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      <<: *app-environment
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      JUPYTER_CONFIG_DIR: /workspace/jupyter-state/config
+      JUPYTER_DATA_DIR: /workspace/jupyter-state/data
+      JUPYTER_RUNTIME_DIR: /workspace/jupyter-state/runtime
+      IPYTHONDIR: /workspace/jupyter-state/ipython
+    ports:
+      - "127.0.0.1:${JUPYTER_PORT:-8889}:8888"
+    volumes:
+      - ./notebooks:/workspace/notebooks
+      - ./src:/workspace/src
+      - ./data:/workspace/data
+      - ./reports:/workspace/reports
+      - ./configs:/workspace/configs
+      - ./runtime/jupyter:/workspace/jupyter-state
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; r=urllib.request.Request('http://localhost:8888/api',headers={'Authorization':'token '+os.environ['JUPYTER_TOKEN']}); urllib.request.urlopen(r,timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow
+    command: [db, migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-api-server:
+    <<: *airflow
+    command: [api-server]
+    ports:
+      - "127.0.0.1:${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  airflow-scheduler:
+    <<: *airflow
+    command: [scheduler]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8974/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  airflow-dag-processor:
+    <<: *airflow
+    command: [dag-processor]
+    healthcheck:
+      test: [CMD-SHELL, 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 60s
