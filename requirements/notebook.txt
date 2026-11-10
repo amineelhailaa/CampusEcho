@@ -3,3 +3,4 @@ jupyterlab==4.6.5
 ipykernel==7.3.0
 matplotlib==3.11.2
 seaborn==0.13.2
+kagglehub

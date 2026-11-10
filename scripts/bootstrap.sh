@@ -11,11 +11,8 @@ import secrets
 
 root = Path.cwd()
 for directory in ["data/raw", "data/interim", "data/processed", "reports/figures",
-                  "runtime/mlflow/artifacts", "runtime/airflow/logs", "runtime/airflow/auth",
-                  "runtime/jupyter", "runtime/api/model-cache"]:
+                  "runtime/airflow/logs", "runtime/airflow/auth", "runtime/airflow/state"]:
     (root / directory).mkdir(parents=True, exist_ok=True)
-# PostgreSQL's entrypoint initializes and owns its private directory.
-(root / "runtime/postgres").mkdir(parents=True, exist_ok=True)
 env = root / ".env"
 if not env.exists():
     template = (root / ".env.example").read_text()

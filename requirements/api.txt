@@ -1,3 +1,0 @@
--r ml.txt
-fastapi==0.136.3
-uvicorn==0.52.4
