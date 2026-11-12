@@ -1,3 +1,4 @@
+from random import random
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression

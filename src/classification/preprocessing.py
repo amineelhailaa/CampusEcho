@@ -47,6 +47,11 @@ def build_preprocessor():
                 feature_names_out="one-to-one"
             )),
             ("imputer", impute_missing_values()),
+            ("fix_contradictions", FunctionTransformer(
+                fix_imputed_contradictions,
+                validate= False,
+                feature_names_out="one-to-one"
+            )),
             ("scaler", scale_numeric_columns()),
             ("encode", categorical_encode()),
 
@@ -116,3 +121,10 @@ def remove_invalid_targets(df):
     valid_target = (df["Mental_Health_Risk"].notna()) & ~invalid_category(df["Mental_Health_Risk"], CATEGORY_RULES["Mental_Health_Risk"])
     return df.loc[valid_target].copy()
 
+
+def fix_imputed_contradictions(X):
+    transformed = X.copy()
+    transformed["Social_Media_Hours"] = transformed["Social_Media_Hours"].clip(
+        upper = transformed["Screen_Time_Hours"]
+    )
+    return transformed
