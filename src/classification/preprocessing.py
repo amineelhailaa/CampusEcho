@@ -46,7 +46,8 @@ def build_preprocessor():
                 validate=False,
                 feature_names_out="one-to-one"
             )),
-            ("imputer", imputing_missing_values()),
+            ("imputer", impute_missing_values()),
+            ("scaler", scale_numeric_columns()),
             ("encode", categorical_encode()),
 
         ]
@@ -85,41 +86,33 @@ def categorical_encode():
 
 
 
-def imputing_missing_values():
-    numerical_pipeline = Pipeline([
-        ("scaler", StandardScaler()),
-        # ("imputer", KNNImputer(n_neighbors=5)),
-        ("imputer", SimpleImputer(strategy="median")),
-    ])
 
-    return ColumnTransformer(transformers=[
-        ("numerical", numerical_pipeline, list(NUMERIC_RULES)),
-        ("categorical", SimpleImputer(strategy="most_frequent"),
-         list(filter(lambda x: x != "Mental_Health_Risk", CATEGORY_RULES)),)
-    ],
-        verbose_feature_names_out=False).set_output(transform="pandas")  # false for getting same features without alias and out put to get same column name order
+
+def impute_missing_values():
+    categorical_columns = list(
+        filter(lambda column: column != "Mental_Health_Risk", CATEGORY_RULES)
+    )
+
+    return ColumnTransformer(
+        transformers=[
+            ("numerical", SimpleImputer(strategy="median"), list(NUMERIC_RULES)),
+            ("categorical", SimpleImputer(strategy="most_frequent"), categorical_columns),
+        ],
+        verbose_feature_names_out=False,
+    ).set_output(transform="pandas")
+
+
+def scale_numeric_columns():
+    return ColumnTransformer(
+        transformers=[
+            ("numerical", StandardScaler(), list(NUMERIC_RULES)),
+        ],
+        remainder="passthrough",
+        verbose_feature_names_out=False,
+    ).set_output(transform="pandas")
 
 
 def remove_invalid_targets(df):
     valid_target = (df["Mental_Health_Risk"].notna()) & ~invalid_category(df["Mental_Health_Risk"], CATEGORY_RULES["Mental_Health_Risk"])
     return df.loc[valid_target].copy()
 
-# def preprocessing(df):
-#
-#     cleaned_df = remove_invalid_targets(df)
-#     X = cleaned_df.drop(columns=["Student_ID", "Mental_Health_Risk"])
-#     y = cleaned_df["Mental_Health_Risk"]
-#
-#
-#     X_train, X_test, y_train, y_test = train_test_split(
-#         X,
-#         y,
-#         test_size = 0.2,
-#         stratify=y,
-#         random_state = RANDOM_STATE
-#     )
-#
-#     pip = build_preprocessor()
-#     processed_data = pip.fit_transform(X_train)
-#     pd.load_csv
-#     return
