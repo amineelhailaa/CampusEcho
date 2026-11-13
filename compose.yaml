@@ -46,6 +46,8 @@ services:
       - "127.0.0.1:${STREAMLIT_PORT:-8501}:8501"
     volumes:
       - ./streamlit_app:/workspace/streamlit_app:ro
+      - ./reports/models:/workspace/reports/models:ro
+      - ./src:/workspace/src:ro
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=5)"]
       interval: 10s
