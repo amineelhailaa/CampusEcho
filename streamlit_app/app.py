@@ -11,11 +11,11 @@ if str(project_folder / "src") not in sys.path:
 model_path = project_folder / "reports/models/champion.joblib"
 risk_labels = {0: "Low", 1: "Medium", 2: "High"}
 
-st.config.set_option("theme.base", "dark")
-st.config.set_option("theme.backgroundColor", "#000000")
-st.config.set_option("theme.secondaryBackgroundColor", "#111111")
-st.config.set_option("theme.textColor", "#EEEEEE")
-st.config.set_option("theme.primaryColor", "#B8C4D4")
+# st.config.set_option("theme.base", "dark")
+# st.config.set_option("theme.backgroundColor", "#000000")
+# st.config.set_option("theme.secondaryBackgroundColor", "#111111")
+# st.config.set_option("theme.textColor", "#EEEEEE")
+# st.config.set_option("theme.primaryColor", "#B8C4D4")
 st.set_page_config(page_title="Champion · Model test", layout="centered")
 
 st.title("Test a student profile")
