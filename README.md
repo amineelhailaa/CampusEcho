@@ -1,87 +1,84 @@
-# Classification project
+# Student Mental Health Risk Classification
 
-Start with JupyterLab for data inspection and EDA. Open `notebooks/01_data_inspection.ipynb` after placing your dataset in `data/raw/`.
+A machine learning learning project that predicts the dataset's student mental health risk category: **Low**, **Medium**, or **High**. It uses academic, lifestyle, and personal-context features.
 
-## Start JupyterLab
+The project includes data inspection, EDA, preprocessing, model comparison and tuning, an Airflow training workflow, and a Streamlit prediction interface.
 
-From the project directory, run:
+## Tools
 
-```bash
-./scripts/bootstrap.sh
-docker compose up -d --build jupyter
+Python, Pandas, scikit-learn, Matplotlib, JupyterLab, Streamlit, Airflow, and Docker Compose.
+
+## Run locally
+
+Install Docker with Docker Compose. Run commands from the project directory.
+
+Use your existing `.env`. For a new checkout, copy `.env.example` to `.env`, replace the `CHANGE_ME` values, and set `LOCAL_UID` / `LOCAL_GID` to your user IDs. Airflow requires a valid Fernet key and a JWT secret.
+
+Place the dataset at:
+
+```text
+data/raw/student_mental_health.csv
 ```
 
-Bootstrap creates your local `.env` and folders. Open [JupyterLab](http://localhost:8889/lab) and enter the `JUPYTER_TOKEN` from `.env`. Your notebook edits are saved in the project's `notebooks/` folder.
+Start JupyterLab:
 
 ```bash
-docker compose stop jupyter
+docker compose --profile notebook up -d --build jupyter
 ```
 
-## Start other services when you need them
+Open [localhost:8889](http://localhost:8889) and enter `JUPYTER_TOKEN` from `.env` in the **Password or token** field. Run notebooks using the Docker Jupyter server; `/workspace` paths refer to files inside the container.
 
-| What you need | Command | Where to open it |
-|---|---|---|
-| Streamlit | `docker compose up -d --build streamlit` | [Streamlit](http://localhost:8501) |
-| The full stack, including Airflow | `docker compose --profile notebook --profile orchestration up -d --build` | [Airflow](http://localhost:8080) |
+## Notebook workflow
 
-Use `AIRFLOW_ADMIN_USER` and `AIRFLOW_ADMIN_PASSWORD` from `.env` for Airflow. Airflow runs in a single standalone container and initializes its local SQLite metadata automatically.
+Run the notebooks in order:
 
-To stop the whole stack:
+1. `01_data_inspection.ipynb` — inspect columns, missing values, and invalid values.
+2. `02_eda.ipynb` — explore distributions and relationships.
+3. `03_preprocessing_features.ipynb` — prepare features and preprocessing.
+4. `04_training_evaluation.ipynb` — compare models, tune candidates, evaluate, and save pipelines.
+
+Models include Logistic Regression, Decision Tree, Random Forest, and SVC. Comparison uses five-fold stratified cross-validation with macro F1. Preprocessing is included in each model pipeline.
+
+Saved models are written to `reports/models/`; figures go to `reports/figures/`.
+
+## Prediction interface
+
+After saving `reports/models/champion.joblib`, start Streamlit:
+
+```bash
+docker compose up -d --build streamlit
+```
+
+Open [localhost:8501](http://localhost:8501), enter a student profile, and run a prediction to see the predicted category and class probabilities.
+
+## Airflow workflow
+
+```bash
+docker compose --profile orchestration up -d --build airflow
+```
+
+Open [localhost:8080](http://localhost:8080). The username comes from `AIRFLOW_ADMIN_USER` in `.env`; the password is stored in `runtime/airflow/auth/passwords.json`. The current Compose setup does not use `AIRFLOW_ADMIN_PASSWORD`.
+
+Manually trigger the `student_risk_training` DAG. It validates the dataset, creates train/test splits, compares and tunes models, saves `champion.joblib`, and writes test metrics to `reports/evaluation.json`.
+
+## Project structure
+
+```text
+notebooks/           Data exploration and training
+src/classification/  Shared validation, preprocessing, training, and plotting
+streamlit_app/       Prediction interface
+dags/                Airflow workflow
+data/                Raw and processed datasets
+reports/             Models, evaluation results, and figures
+docker/              Service Dockerfiles
+requirements/        Python dependencies
+runtime/             Airflow state, authentication, and logs
+```
+
+## Stop services
 
 ```bash
 docker compose --profile notebook --profile orchestration down
 ```
 
-## How services connect
-
-Jupyter reads and writes project files directly. Streamlit is a standalone interface shell.
-Airflow runs with SQLite metadata stored in `runtime/airflow/state/airflow.db`.
-This standalone configuration is for local development, not production.
-
-## Project layout
-
-- `src/classification/`: shared Python code. Docker adds `src/` to Python’s search path.
-- `streamlit_app/`: standalone interface shell.
-- `notebooks/`: inspection, detailed EDA, features/preprocessing, and training outlines.
-- `dags/`: Airflow workflows.
-- `requirements/`: separate pinned direct dependencies per environment. Shared ML
-  versions live in `ml.txt`. The Airflow build downloads the official constraints from
-  https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt.
-- `docker/`: per-service images.
-- `configs/`: future dataset and training configuration.
-- `data/raw`, `data/interim`, `data/processed`: future dataset files.
-- `reports/figures`: future visualizations and evaluation outputs.
-- `runtime/`: ignored persistent service state, never included in image build contexts.
-
-Every persistent mount is a **host bind mount**. There are no named Docker volumes.
-Application and configuration mounts are read-only where possible; Jupyter can edit
-notebooks, shared source, configuration, data, and reports. Airflow can write data and
-reports. Jupyter state and Airflow logs, authentication, and SQLite metadata all persist on the host. Container temporary files remain disposable.
-
-Bootstrap uses your UID/GID for Jupyter and application processes. Airflow uses your UID
-with group 0, as supported by its image. Avoid `sudo` for bootstrap and do not
-use `chmod 777`. If moving the project to another Linux account, adjust `LOCAL_UID` and
-`LOCAL_GID` and grant that account ownership of writable application directories.
-
-## Development and later workflow
-
-Source, notebook, and DAG edits appear through bind mounts. Streamlit detects application changes. Rebuild images after changing requirements. Dependencies install at image build time, not every startup.
-
-Once a labeled dataset is selected: establish feature availability and a holdout split;
-explore training data; build preprocessing inside a scikit-learn Pipeline; compare
-baselines; tune with cross-validation; evaluate on the untouched test set; save the
-complete pipeline; then implement model loading and Streamlit inputs. Airflow will orchestrate reusable shared code.
-
-## Backup and reset
-
-Back up `.env`, notebooks, source, datasets, reports, and artifacts.
-Stop Airflow before copying `runtime/airflow`, which contains its SQLite metadata,
-authentication secrets, and logs.
-
-`docker compose down` preserves bind-mounted data. Even `down -v` does not erase host
-bind directories. A reset requires an explicit host-side action. To start fresh while
-retaining a recoverable copy, stop the complete stack, rename `runtime` to a dated backup,
-rerun bootstrap, then start the stack. This resets service metadata
-in the active stack; existing dataset, report, and notebook directories remain in place.
-
-Reference: https://airflow.apache.org/docs/apache-airflow/3.3.2/howto/docker-compose/index.html.
+Project files and service state persist through host bind mounts.
