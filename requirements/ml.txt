@@ -6,3 +6,4 @@ scikit-learn==1.9.1
 xgboost==3.4.1
 SQLAlchemy==2.0.52
 pydantic-settings==2.15.0
+dill==0.4.1
